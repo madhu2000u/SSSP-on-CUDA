@@ -1,27 +1,6 @@
 #include <iostream>
 #include <sys/time.h>
-
-#define MATRIX_SIZE 4096
-#define BLOCK_DIM 32                
-#define TILE_SZE BLOCK_DIM          //Tile size is same as block dimension. defined for better code understandability
-
-#define CHECK(call)\
-{\
-    const cudaError_t error = call;\
-    if(error != cudaSuccess)\
-    {\
-        std::cout<<"Error: "<<__FILE__<<":"<<__LINE__<<std::endl;\
-        std::cout<<"Code: "<<error<<", reason: "<<cudaGetErrorString(error)<<std::endl;\
-        exit(1);\
-    }\
-}
-
-typedef struct
-{
-    float value;
-    int16_t row, col;
-
-} matElement;
+#include "sssp_common.h"
 
 void matrixInit(float *a, float *b, float *c)
 {
@@ -98,9 +77,15 @@ __global__ void find2Min(int16_t firstMinRow, int16_t firstMinCol, float *c, mat
 
     int16_t threadId = threadIdx.y * BLOCK_DIM + threadIdx.x;
 
+    float tempVal;
+
     __shared__ matElement sharedC[BLOCK_DIM * BLOCK_DIM];
 
-    if(row == 0 && col == 0)c[firstMinRow * MATRIX_SIZE + firstMinCol] = __FLT_MAX__;
+    if(row == 0 && col == 0)
+    {
+        tempVal = c[firstMinRow * MATRIX_SIZE + firstMinCol];
+        c[firstMinRow * MATRIX_SIZE + firstMinCol] = __FLT_MAX__;
+    }
     __syncthreads();
 
     sharedC[threadId].value = c[row * MATRIX_SIZE + col];
@@ -110,10 +95,12 @@ __global__ void find2Min(int16_t firstMinRow, int16_t firstMinCol, float *c, mat
 
     minBlockReduce(sharedC, threadId);
     if(threadId == 0){   
-        d_minValueFromEachBlock[blockIdx.y * 128 + blockIdx.x].value = sharedC[0].value;
-        d_minValueFromEachBlock[blockIdx.y * 128 + blockIdx.x].row = sharedC[0].row;
-        d_minValueFromEachBlock[blockIdx.y * 128 + blockIdx.x].col = sharedC[0].col;
+        d_minValueFromEachBlock[blockIdx.y * gridDim.x + blockIdx.x].value = sharedC[0].value;
+        d_minValueFromEachBlock[blockIdx.y * gridDim.x + blockIdx.x].row = sharedC[0].row;
+        d_minValueFromEachBlock[blockIdx.y * gridDim.x + blockIdx.x].col = sharedC[0].col;
     }
+
+    if(row == 0 && col ==0) c[firstMinRow * MATRIX_SIZE + firstMinCol] = tempVal;                   //replace the first min val with the original since we replaced it with FLT_MAX for finding second min
 }
 
 __global__ void tiledMatrixMultiply(float *a, float *b, float *c, matElement *d_minValueFromEachBlock)
@@ -153,13 +140,13 @@ __global__ void tiledMatrixMultiply(float *a, float *b, float *c, matElement *d_
 
     minBlockReduce(newSharedB, threadId);
     if(threadId == 0){   
-        d_minValueFromEachBlock[blockIdx.y * 128 + blockIdx.x].value = newSharedB[0].value;
-        d_minValueFromEachBlock[blockIdx.y * 128 + blockIdx.x].row = newSharedB[0].row;
-        d_minValueFromEachBlock[blockIdx.y * 128 + blockIdx.x].col = newSharedB[0].col;
+        d_minValueFromEachBlock[blockIdx.y * gridDim.x + blockIdx.x].value = newSharedB[0].value;
+        d_minValueFromEachBlock[blockIdx.y * gridDim.x + blockIdx.x].row = newSharedB[0].row;
+        d_minValueFromEachBlock[blockIdx.y * gridDim.x + blockIdx.x].col = newSharedB[0].col;
     }
 }
 
-int main()
+extern float* computeMatrixMult()
 {
     struct timeval start_time, end_time;
     double exec_time;
@@ -226,6 +213,12 @@ int main()
     }
     gettimeofday(&end_time, NULL);
 
+    free(h_a);
+    free(h_b);
+
+    cudaFree(d_a);
+    cudaFree(d_b);
+
     exec_time = (double)(end_time.tv_sec - start_time.tv_sec) + (double)(end_time.tv_usec - start_time.tv_usec)/(double)1000000;
 
     std::cout<<"Execution time - "<<exec_time<<std::endl;
@@ -236,5 +229,6 @@ int main()
 
     std::cout<<"Min value 2 (val, row, col) - ("<<minElement[1].value<<", "<<minElement[1].row<<", "<<minElement[1].col<<")"<<std::endl;
 
+    return d_c;
 
 }

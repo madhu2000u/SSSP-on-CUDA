@@ -2,14 +2,21 @@ NC = nvcc
 
 SRC1g2m = cuda-1g-wsm2.cu
 
-OUT1g2m = cuda-1g-wsm2.out
+OBJ_1g2m = cuda-1g-wsm2.o
+
+SRC_SSSP = sssp.cu
+
+OUT_SSSP = sssp.out
 
 
-2m:$(SRC1g2m)
-	$(NC) $(SRC1g2m) -o $(OUT1g2m)
+sssp:$(OBJ_1g2m) $(SRC_SSSP) 
+	$(NC) $^ -o $(OUT_SSSP)
 
-2mrun:2m
-	./$(OUT1g2m)
+$(OBJ_1g2m):$(SRC1g2m)
+	$(NC) -c $^ -o $@
+
+run:sssp
+	./$(OUT_SSSP)
 
 clean:
-	rm $(OUT1g2m)
+	rm $(OUT_SSSP) $(OBJ_1g2m)
