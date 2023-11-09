@@ -100,7 +100,7 @@ __global__ void find2Min(int16_t firstMinRow, int16_t firstMinCol, float *c, mat
         d_minValueFromEachBlock[blockIdx.y * gridDim.x + blockIdx.x].col = sharedC[0].col;
     }
 
-    if(row == 0 && col ==0) c[firstMinRow * MATRIX_SIZE + firstMinCol] = tempVal;                   //replace the first min val with the original since we replaced it with FLT_MAX for finding second min
+    // if(row == 0 && col ==0) c[firstMinRow * MATRIX_SIZE + firstMinCol] = tempVal;                   //replace the first min val with the original since we replaced it with FLT_MAX for finding second min
 }
 
 __global__ void tiledMatrixMultiply(float *a, float *b, float *c, matElement *d_minValueFromEachBlock)
@@ -201,6 +201,8 @@ extern float* computeMatrixMult()
     find2Min<<<blockPerGrid, threadsPerBlock>>>(minElement[0].row, minElement[0].col, d_c, d_minValueFromEachBlock);
 
     CHECK(cudaMemcpy(h_minValueFromEachBlock, d_minValueFromEachBlock, (MATRIX_SIZE / BLOCK_DIM) * (MATRIX_SIZE / BLOCK_DIM) * sizeof(matElement), cudaMemcpyDeviceToHost));
+    
+    d_c[minElement[0].row * MATRIX_SIZE + minElement[0].col] = minElement[0].value;
     
     for (int i = 0; i < (MATRIX_SIZE / BLOCK_DIM) * (MATRIX_SIZE / BLOCK_DIM); i++)
     {
