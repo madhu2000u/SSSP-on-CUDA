@@ -77,15 +77,10 @@ __global__ void find2Min(int16_t firstMinRow, int16_t firstMinCol, float *c, mat
 
     int16_t threadId = threadIdx.y * BLOCK_DIM + threadIdx.x;
 
-    float tempVal;
-
     __shared__ matElement sharedC[BLOCK_DIM * BLOCK_DIM];
 
-    if(row == 0 && col == 0)
-    {
-        tempVal = c[firstMinRow * MATRIX_SIZE + firstMinCol];
-        c[firstMinRow * MATRIX_SIZE + firstMinCol] = __FLT_MAX__;
-    }
+    if(row == 0 && col == 0) c[firstMinRow * MATRIX_SIZE + firstMinCol] = __FLT_MAX__;
+    
     __syncthreads();
 
     sharedC[threadId].value = c[row * MATRIX_SIZE + col];
@@ -146,11 +141,10 @@ __global__ void tiledMatrixMultiply(float *a, float *b, float *c, matElement *d_
     }
 }
 
-extern float* computeMatrixMult()
+extern float* computeMatrixMult(matElement *minElement)
 {
     struct timeval start_time, end_time;
     double exec_time;
-    matElement minElement[2];
     minElement[0].value = __FLT_MAX__;
     minElement[1].value = __FLT_MAX__;
 
