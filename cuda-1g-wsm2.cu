@@ -75,7 +75,7 @@ __global__ void find2Min(int16_t firstMinRow, int16_t firstMinCol, float *c, mat
     int16_t row = blockIdx.y * blockDim.y + threadIdx.y;
     int16_t col = blockIdx.x * blockDim.x + threadIdx.x;
 
-    int16_t threadId = threadIdx.y * BLOCK_DIM + threadIdx.x;
+    int16_t threadId = threadIdx.y * BLOCK_DIM + threadIdx.x;                       //thread id within each block only
 
     __shared__ matElement sharedC[BLOCK_DIM * BLOCK_DIM];
 

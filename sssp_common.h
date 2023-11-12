@@ -4,6 +4,7 @@
 #define MATRIX_SIZE 1024
 #define BLOCK_DIM 32                
 #define TILE_SZE BLOCK_DIM          //Tile size is same as block dimension. defined for better code understandability
+#define TEST 0
 
 #define CHECK(call)\
 {\
