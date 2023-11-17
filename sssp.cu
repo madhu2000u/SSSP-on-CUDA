@@ -6,7 +6,7 @@
 
 float* computeMatrixMult(matElement*);
 
-void setUpArrays(float *d_c, int *vertex, int *edges, bool *threadMask, float* cost, float* intermediateCost, matElement* minElement)
+void setUpArrays(float *d_c, int *vertex, int *edges, bool *threadMask, float* cost, float* intermediateCost, int* path, matElement* minElement)
 {   
     int edgeIndex = 0;
     for (int i = 0; i < MATRIX_SIZE; i++)
@@ -16,6 +16,7 @@ void setUpArrays(float *d_c, int *vertex, int *edges, bool *threadMask, float* c
             threadMask[i * MATRIX_SIZE + j] = false;
             cost[i * MATRIX_SIZE + j] = __FLT_MAX__;
             intermediateCost[i * MATRIX_SIZE + j] = __FLT_MAX__;
+            path[i * MATRIX_SIZE + j] = -1;
 
             vertex[i * MATRIX_SIZE + j] = edgeIndex;
             if((j + 1) < MATRIX_SIZE) edges[edgeIndex++] = i * MATRIX_SIZE + (j + 1);
@@ -47,6 +48,47 @@ void printNeighbors(int index, float *d_c, int *vertex, int* edges)
     
 }
 
+void printPath(int *path)
+{
+    for (int i = 0; i < MATRIX_SIZE; i++)
+    {
+        for (int j = 0; j < MATRIX_SIZE; j++)
+        {
+            printf("(%d, %d),  ", i * MATRIX_SIZE + j, path[i * MATRIX_SIZE + j]);
+        }
+        
+        
+    }
+}
+
+typedef struct pathElement
+{
+    float value;
+    int pathIndex;
+};
+
+
+unsigned long long int __pathElement_as_ulli(pathElement *pathElement)
+{
+    unsigned long long int ulli = (unsigned long long int) pathElement;
+    return ulli;
+
+}
+
+__device__ __forceinline__ float atomicMinPath(float *intermediateAddr, int *pathAddr, float value, int indexOfCallingThreadToPointToForCorrespondingAddrToGivePath)
+{
+    int currentIntermediateCost = __float_as_int(*intermediateAddr);                                            //reinterpret to int since atomicCAS() requires int
+    int currentPath = *pathAddr;
+    while (value < __int_as_float(currentIntermediateCost))                                         
+    {//atomicCAS_block()
+        int old = currentPath;
+        currentPath = atomicCAS(pathAddr, old, indexOfCallingThreadToPointToForCorrespondingAddrToGivePath);                //if *addr == old then it puts value into addr and returns old else it does nothing and just retunrs whatever was there in addr
+        if(currentPath == old) break;                                                   //if value was successfully put into addr then the current thread was successful in it's atomic operation else it has to re-run with the new "current value" from addr(that might have been changed by another thread's atomic operation) and do the swapping again
+    }
+    return currentPath;
+    
+}
+
 __device__ __forceinline__ float atomicMin(float *addr, float value)
 {
     int current = __float_as_int(*addr);                                            //reinterpret to int since atomicCAS() requires int
@@ -58,6 +100,23 @@ __device__ __forceinline__ float atomicMin(float *addr, float value)
     }
     return __int_as_float(current);
     
+}
+
+__global__ void computePaths(float *d_c, int *vertex, int *edges, bool *threadMask, float *cost, float *intermediateCost, int* path)
+{
+    int row = blockIdx.y * blockDim.y + threadIdx.y;
+    int col = blockIdx.x * blockDim.x + threadIdx.x;
+
+    int threadIndex = row * MATRIX_SIZE + col;                              //this is the global thread index to index into the entire matrix and not just for threads within each block
+    if(threadMask[threadIndex])
+    {
+        //threadMask[threadIndex] = false;
+        for (int i = vertex[threadIndex]; i < vertex[threadIndex + 1]; i++)
+        {   
+            atomicMinPath(&intermediateCost[edges[i]], &path[edges[i]], (cost[threadIndex] + d_c[edges[i]]), threadIndex);
+        }
+        
+    }
 }
 
 __global__ void computeIntermediates(float *d_c, int *vertex, int *edges, bool *threadMask, float *cost, float *intermediateCost)
@@ -97,7 +156,7 @@ __global__ void computeFinalCostsAndPath(bool *d_done, int *vertex, int *edges, 
 int main()
 {
 
-    int *vertex, *edges;
+    int *vertex, *edges, *path;
     float *d_c;
     float *cost, *intermediateCost;
     bool *threadMask;
@@ -117,8 +176,8 @@ int main()
 
     //Use test data for sssp checking
     #if(TEST)
-    float test_data[16] = {1.2, 5.4, 3.7, 2.3, 9.7, 4.9, 10.3, 7.6, 6.1, 8.4, 12.6, 11.5, 14.3, 15.8, 16.4, 17.7};
-    // CHECK(cudaMemcpy(d_c, &test_data, size, cudaMemcpyHostToDevice));
+    float test_data[16] = {1.2, 5.4, 1.0f, 1.0f, 9.7, 4.9, 1.0f, 7.6, 6.1, 8.4, 1.0f, 11.5, 14.3, 15.8, 1.0f, 17.7};
+    CHECK(cudaMemcpy(d_c, &test_data, size, cudaMemcpyHostToDevice));
 
     for (int i = 0; i < MATRIX_SIZE; i++)
     {
@@ -130,30 +189,31 @@ int main()
         
     }
     //Test values for source and target
-    minElement[0].row = 0; minElement[0].col = 0;
-    minElement[1].row = 3; minElement[1].col = 1;
+    minElement[0].row = 0; minElement[0].col = 3;
+    minElement[1].row = 3; minElement[1].col = 3;
     #endif
 
-    vertex = (int*)malloc(((MATRIX_SIZE * MATRIX_SIZE) + 1) * sizeof(int));                            // + 1 because we need a location at the end of the vertex that stores the ending index of the edge
-    threadMask = new bool[MATRIX_SIZE * MATRIX_SIZE];
-    edges = (int*)malloc( numEdges * sizeof(int));
+    // vertex = (int*)malloc(((MATRIX_SIZE * MATRIX_SIZE) + 1) * sizeof(int));                            
+    // threadMask = new bool[MATRIX_SIZE * MATRIX_SIZE];
+    // edges = (int*)malloc( numEdges * sizeof(int));
 
-    cost = (float*)malloc(size);
-    intermediateCost = (float*)malloc(size);                                                          //each neighbor need not have it's own cost location because the intermediate cost for a vertex is the same memory location updated by all neighbouring threads.
+    // cost = (float*)malloc(size);
+    // intermediateCost = (float*)malloc(size);                                                          
 
    
 
     
 
     //Setup CUDA device memories for the data
-    CHECK(cudaMallocHost(&vertex, ((MATRIX_SIZE * MATRIX_SIZE) + 1) * sizeof(int)));
+    CHECK(cudaMallocHost(&vertex, ((MATRIX_SIZE * MATRIX_SIZE) + 1) * sizeof(int)));                     // + 1 because we need a location at the end of the vertex that stores the ending index of the edge
     CHECK(cudaMallocHost(&edges, numEdges * sizeof(int)));
     CHECK(cudaMallocHost(&threadMask, MATRIX_SIZE * MATRIX_SIZE * sizeof(bool)));
     CHECK(cudaMallocHost(&cost, size));
-    CHECK(cudaMallocHost(&intermediateCost, numEdges * sizeof(float)));
+    CHECK(cudaMallocHost(&intermediateCost, numEdges * sizeof(float)));                                  //each neighbor need not have it's own cost location because the intermediate cost for a vertex is the same memory location updated by all neighbouring threads.
+    CHECK(cudaMallocHost(&path, size));
     CHECK(cudaMallocHost(&d_done_ptr, sizeof(bool)));
 
-    setUpArrays(d_c, vertex, edges, threadMask, cost, intermediateCost, minElement);
+    setUpArrays(d_c, vertex, edges, threadMask, cost, intermediateCost, path, minElement);
     vertex[MATRIX_SIZE * MATRIX_SIZE] = numEdges;                                                     //last value in vertex is total numEdges so that we can use the starting and ending index when getting the neighbors
 
 
@@ -167,6 +227,9 @@ int main()
         //memcpy h_done to d_done
         CHECK(cudaMemcpy(d_done_ptr, &h_done, sizeof(bool), cudaMemcpyHostToDevice));
 
+        computePaths<<<blockPerGrid, threadsPerBlock>>>(d_c, vertex, edges, threadMask, cost, intermediateCost, path);
+        cudaDeviceSynchronize();
+
         //call kernel 1
         computeIntermediates<<<blockPerGrid, threadsPerBlock>>>(d_c, vertex, edges, threadMask, cost, intermediateCost);
         cudaDeviceSynchronize();
@@ -177,9 +240,13 @@ int main()
 
         //memcpy d_done to h_done
         CHECK(cudaMemcpy(&h_done, d_done_ptr, sizeof(bool), cudaMemcpyDeviceToHost));
+        
+        printPath(path);
+        printf("\n");
 
     }
-
-    printf("cost of target - %f\n", d_c[minElement[0].row * MATRIX_SIZE + minElement[0].col] + cost[minElement[1].row * MATRIX_SIZE + minElement[1].col] - d_c[minElement[1].row * MATRIX_SIZE + minElement[1].col]);       //include source's weight and exclude target's weight
+    
+    
+    printf("\ncost of target - %f\n", d_c[minElement[0].row * MATRIX_SIZE + minElement[0].col] + cost[minElement[1].row * MATRIX_SIZE + minElement[1].col] - d_c[minElement[1].row * MATRIX_SIZE + minElement[1].col]);       //include source's weight and exclude target's weight
 
 }
