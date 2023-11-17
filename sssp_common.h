@@ -24,4 +24,10 @@ typedef struct
 
 } matElement;
 
+typedef struct
+{
+    float value;
+    int pathIndex;
+} pathElement;
+
 // #endif
