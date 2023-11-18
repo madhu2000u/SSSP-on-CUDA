@@ -5,7 +5,7 @@
 
 
 float* computeMatrixMult(matElement*);
-void showSSSP(float*, pathElement*);
+void showSSSP(float*, pathElement*, int);
 
 void setUpArrays(float *d_c, int *vertex, int *edges, bool *threadMask, float* cost, pathElement* intermediateCost, int* path, matElement* minElement)
 {   
@@ -223,10 +223,10 @@ int main()
     }
 
     #if(TEST)
-        printPath(intermediateCost);
+        printPath(intermediateCostAndPath);
     #endif
 
-    showSSSP(d_c, intermediateCostAndPath);
+    showSSSP(d_c, intermediateCostAndPath, (minElement[1].row * MATRIX_SIZE + minElement[1].col));
     
     // pathElement x;
     // x.value = 1.2f;
