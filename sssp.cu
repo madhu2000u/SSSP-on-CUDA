@@ -5,6 +5,7 @@
 
 
 float* computeMatrixMult(matElement*);
+void showSSSP(float*, pathElement*);
 
 void setUpArrays(float *d_c, int *vertex, int *edges, bool *threadMask, float* cost, pathElement* intermediateCost, int* path, matElement* minElement)
 {   
@@ -60,6 +61,11 @@ void printPath(pathElement *path)
         
         
     }
+}
+
+void findPathBoundaries(pathElement *path)
+{
+
 }
 
 /*
@@ -142,7 +148,7 @@ int main()
     int *vertex, *edges, *path;
     float *d_c;
     float *cost;
-    pathElement *intermediateCost;
+    pathElement *intermediateCostAndPath;
     bool *threadMask;
 
     bool h_done = false;
@@ -183,11 +189,11 @@ int main()
     CHECK(cudaMallocHost(&edges, numEdges * sizeof(int)));
     CHECK(cudaMallocHost(&threadMask, MATRIX_SIZE * MATRIX_SIZE * sizeof(bool)));
     CHECK(cudaMallocHost(&cost, size));
-    CHECK(cudaMallocHost(&intermediateCost, MATRIX_SIZE * MATRIX_SIZE * sizeof(pathElement)));          //each neighbor need not have it's own cost location because the intermediate cost for a vertex is the same memory location updated by all neighbouring threads.
+    CHECK(cudaMallocHost(&intermediateCostAndPath, MATRIX_SIZE * MATRIX_SIZE * sizeof(pathElement)));          //each neighbor need not have it's own cost location because the intermediate cost for a vertex is the same memory location updated by all neighbouring threads.
     CHECK(cudaMallocHost(&path, size));
     CHECK(cudaMallocHost(&d_done_ptr, sizeof(bool)));
 
-    setUpArrays(d_c, vertex, edges, threadMask, cost, intermediateCost, path, minElement);
+    setUpArrays(d_c, vertex, edges, threadMask, cost, intermediateCostAndPath, path, minElement);
     vertex[MATRIX_SIZE * MATRIX_SIZE] = numEdges;                                                       //last value in vertex is total numEdges so that we can use the starting and ending index when getting the neighbors
 
 
@@ -203,11 +209,11 @@ int main()
         CHECK(cudaMemcpy(d_done_ptr, &h_done, sizeof(bool), cudaMemcpyHostToDevice));
 
         //call kernel 1
-        computeIntermediatesAndPath<<<blockPerGrid, threadsPerBlock>>>(d_c, vertex, edges, threadMask, cost, intermediateCost);
+        computeIntermediatesAndPath<<<blockPerGrid, threadsPerBlock>>>(d_c, vertex, edges, threadMask, cost, intermediateCostAndPath);
         cudaDeviceSynchronize();
 
         //call kernel 2
-        computeFinalCosts<<<blockPerGrid, threadsPerBlock>>>(d_done_ptr, vertex, edges, threadMask, cost, intermediateCost);
+        computeFinalCosts<<<blockPerGrid, threadsPerBlock>>>(d_done_ptr, vertex, edges, threadMask, cost, intermediateCostAndPath);
         cudaDeviceSynchronize();
 
         //memcpy d_done to h_done
@@ -219,6 +225,9 @@ int main()
     #if(TEST)
         printPath(intermediateCost);
     #endif
+
+    showSSSP(d_c, intermediateCostAndPath);
+    
     // pathElement x;
     // x.value = 1.2f;
     // x.pathIndex = 5;
